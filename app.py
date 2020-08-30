@@ -1,52 +1,84 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request,jsonify
+from flask_cors import CORS,cross_origin
+import requests
+from bs4 import BeautifulSoup as bs
+from urllib.request import urlopen as uReq
 
 app = Flask(__name__)
 
+@app.route('/',methods=['GET'])  # route to display the home page
+@cross_origin()
+def homePage():
+    return render_template("index.html")
 
-@app.route('/', methods=['GET', 'POST']) # To render Homepage
-def home_page():
-    return render_template('index.html')
+@app.route('/review',methods=['POST','GET']) # route to show the review comments in a web UI
+@cross_origin()
+def index():
+    if request.method == 'POST':
+        try:
+            searchString = request.form['content'].replace(" ","")
+            flipkart_url = "https://www.flipkart.com/search?q=" + searchString
+            uClient = uReq(flipkart_url)
+            flipkartPage = uClient.read()
+            uClient.close()
+            flipkart_html = bs(flipkartPage, "html.parser")
+            bigboxes = flipkart_html.findAll("div", {"class": "bhgxx2 col-12-12"})
+            del bigboxes[0:3]
+            box = bigboxes[0]
+            productLink = "https://www.flipkart.com" + box.div.div.div.a['href']
+            prodRes = requests.get(productLink)
+            prodRes.encoding='utf-8'
+            prod_html = bs(prodRes.text, "html.parser")
+            #print(prod_html)
+            commentboxes = prod_html.find_all('div', {'class': "_3nrCtb"})
 
-@app.route('/math', methods=['POST'])  # This will be called from UI
-def math_operation():
-    if (request.method=='POST'):
-        operation=request.form['operation']
-        num1=int(request.form['num1'])
-        num2 = int(request.form['num2'])
-        if(operation=='add'):
-            r=num1+num2
-            result= 'the sum of '+str(num1)+' and '+str(num2) +' is '+str(r)
-        if (operation == 'subtract'):
-            r = num1 - num2
-            result = 'the difference of ' + str(num1) + ' and ' + str(num2) + ' is ' + str(r)
-        if (operation == 'multiply'):
-            r = num1 * num2
-            result = 'the product of ' + str(num1) + ' and ' + str(num2) + ' is ' + str(r)
-        if (operation == 'divide'):
-            r = num1 / num2
-            result = 'the quotient when ' + str(num1) + ' is divided by ' + str(num2) + ' is ' + str(r)
-        return render_template('results.html',result=result)
+            filename = searchString + ".csv"
+            fw = open(filename, "w")
+            headers = "Product, Customer Name, Rating, Heading, Comment \n"
+            fw.write(headers)
+            reviews = []
+            for commentbox in commentboxes:
+                try:
+                    #name.encode(encoding='utf-8')
+                    name = commentbox.div.div.find_all('p', {'class': '_3LYOAd _3sxSiS'})[0].text
 
-@app.route('/via_postman', methods=['POST']) # for calling the API from Postman/SOAPUI
-def math_operation_via_postman():
-    if (request.method=='POST'):
-        operation=request.json['operation']
-        num1=int(request.json['num1'])
-        num2 = int(request.json['num2'])
-        if(operation=='add'):
-            r=num1+num2
-            result= 'the sum of '+str(num1)+' and '+str(num2) +' is '+str(r)
-        if (operation == 'subtract'):
-            r = num1 - num2
-            result = 'the difference of ' + str(num1) + ' and ' + str(num2) + ' is ' + str(r)
-        if (operation == 'multiply'):
-            r = num1 * num2
-            result = 'the product of ' + str(num1) + ' and ' + str(num2) + ' is ' + str(r)
-        if (operation == 'divide'):
-            r = num1 / num2
-            result = 'the quotient when ' + str(num1) + ' is divided by ' + str(num2) + ' is ' + str(r)
-        return jsonify(result)
+                except:
+                    name = 'No Name'
+
+                try:
+                    #rating.encode(encoding='utf-8')
+                    rating = commentbox.div.div.div.div.text
 
 
-if __name__ == '__main__':
-    app.run(debug=True)
+                except:
+                    rating = 'No Rating'
+
+                try:
+                    #commentHead.encode(encoding='utf-8')
+                    commentHead = commentbox.div.div.div.p.text
+
+                except:
+                    commentHead = 'No Comment Heading'
+                try:
+                    comtag = commentbox.div.div.find_all('div', {'class': ''})
+                    #custComment.encode(encoding='utf-8')
+                    custComment = comtag[0].div.text
+                except Exception as e:
+                    print("Exception while creating dictionary: ",e)
+
+                mydict = {"Product": searchString, "Name": name, "Rating": rating, "CommentHead": commentHead,
+                          "Comment": custComment}
+
+                reviews.append(mydict)
+            return render_template('results.html', reviews=reviews[0:(len(reviews)-1)])
+        except Exception as e:
+            print('The Exception message is: ',e)
+            return 'something is wrong'
+    # return render_template('results.html')
+
+    else:
+        return render_template('index.html')
+
+if __name__ == "__main__":
+    #app.run(host='127.0.0.1', port=8001, debug=True)
+	app.run(debug=True)
